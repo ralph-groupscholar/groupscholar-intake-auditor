@@ -1,0 +1,219 @@
+#!/usr/bin/env ruby
+
+require "csv"
+require "json"
+require "optparse"
+require "time"
+
+options = {
+  json_path: nil,
+  sample_limit: 10
+}
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: gs-intake-auditor <csv_path> [options]"
+
+  opts.on("--json PATH", "Write full report JSON to PATH") do |path|
+    options[:json_path] = path
+  end
+
+  opts.on("--sample N", Integer, "Max issue sample rows to show (default: 10)") do |n|
+    options[:sample_limit] = [n, 0].max
+  end
+
+  opts.on("-h", "--help", "Show help") do
+    puts opts
+    exit 0
+  end
+end
+
+parser.parse!
+
+csv_path = ARGV.shift
+if csv_path.nil? || csv_path.strip.empty?
+  warn "Missing CSV path."
+  puts parser
+  exit 1
+end
+
+unless File.exist?(csv_path)
+  warn "CSV not found: #{csv_path}"
+  exit 1
+end
+
+required_headers = %w[applicant_id name email program submitted_at status stage score]
+
+rows = []
+headers = nil
+
+begin
+  CSV.foreach(csv_path, headers: true) do |row|
+    headers ||= row.headers
+    rows << row
+  end
+rescue CSV::MalformedCSVError => e
+  warn "CSV parse error: #{e.message}"
+  exit 1
+end
+
+headers ||= []
+missing_headers = required_headers - headers
+
+missing_values = Hash.new(0)
+status_counts = Hash.new(0)
+stage_counts = Hash.new(0)
+email_counts = Hash.new(0)
+score_values = []
+submission_times = []
+issue_rows = []
+
+email_regex = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+now = Time.now
+recent_cutoff = now - (7 * 24 * 60 * 60)
+recent_submissions = 0
+
+rows.each_with_index do |row, index|
+  row_number = index + 2
+  issues = []
+
+  required_headers.each do |header|
+    value = row[header]
+    if value.nil? || value.strip.empty?
+      missing_values[header] += 1
+      issues << "missing_#{header}"
+    end
+  end
+
+  email = row["email"].to_s.strip
+  if !email.empty?
+    email_counts[email.downcase] += 1
+    issues << "invalid_email" unless email_regex.match?(email)
+  end
+
+  score_raw = row["score"].to_s.strip
+  unless score_raw.empty?
+    begin
+      score = Float(score_raw)
+      score_values << score
+      issues << "score_out_of_range" unless score.between?(0, 100)
+    rescue ArgumentError
+      issues << "invalid_score"
+    end
+  end
+
+  submitted_at_raw = row["submitted_at"].to_s.strip
+  unless submitted_at_raw.empty?
+    begin
+      submitted_at = Time.parse(submitted_at_raw)
+      submission_times << submitted_at
+      recent_submissions += 1 if submitted_at >= recent_cutoff
+    rescue ArgumentError
+      issues << "invalid_submitted_at"
+    end
+  end
+
+  status = row["status"].to_s.strip
+  status_counts[status] += 1 unless status.empty?
+
+  stage = row["stage"].to_s.strip
+  stage_counts[stage] += 1 unless stage.empty?
+
+  issue_rows << {
+    row: row_number,
+    applicant_id: row["applicant_id"],
+    issues: issues
+  } unless issues.empty?
+end
+
+duplicate_emails = email_counts.select { |_email, count| count > 1 }
+
+score_stats = if score_values.empty?
+  nil
+else
+  total = score_values.sum
+  {
+    min: score_values.min,
+    max: score_values.max,
+    avg: (total / score_values.length.to_f).round(2)
+  }
+end
+
+submission_window = if submission_times.empty?
+  nil
+else
+  {
+    earliest: submission_times.min.iso8601,
+    latest: submission_times.max.iso8601
+  }
+end
+
+report = {
+  file: File.expand_path(csv_path),
+  generated_at: now.iso8601,
+  total_rows: rows.length,
+  headers: headers,
+  missing_headers: missing_headers,
+  missing_values: missing_values.sort_by { |_, v| -v }.to_h,
+  duplicate_emails: duplicate_emails.sort_by { |_, v| -v }.to_h,
+  status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
+  stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
+  score_stats: score_stats,
+  submission_window: submission_window,
+  recent_submissions_7d: recent_submissions,
+  issue_count: issue_rows.length,
+  issue_samples: issue_rows.first(options[:sample_limit])
+}
+
+if options[:json_path]
+  File.write(options[:json_path], JSON.pretty_generate(report))
+end
+
+puts "Intake Audit Report"
+puts "File: #{report[:file]}"
+puts "Generated: #{report[:generated_at]}"
+puts "Total rows: #{report[:total_rows]}"
+
+if report[:missing_headers].any?
+  puts "Missing headers: #{report[:missing_headers].join(", ")}"
+else
+  puts "Missing headers: none"
+end
+
+if report[:missing_values].any?
+  top_missing = report[:missing_values].first(5).map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top missing values: #{top_missing}"
+else
+  puts "Top missing values: none"
+end
+
+if report[:duplicate_emails].any?
+  puts "Duplicate emails: #{report[:duplicate_emails].length}"
+else
+  puts "Duplicate emails: none"
+end
+
+if report[:score_stats]
+  puts "Score stats: min #{report[:score_stats][:min]}, avg #{report[:score_stats][:avg]}, max #{report[:score_stats][:max]}"
+else
+  puts "Score stats: none"
+end
+
+if report[:submission_window]
+  puts "Submission window: #{report[:submission_window][:earliest]} -> #{report[:submission_window][:latest]}"
+else
+  puts "Submission window: none"
+end
+
+puts "Recent submissions (7d): #{report[:recent_submissions_7d]}"
+puts "Issue rows: #{report[:issue_count]}"
+
+if report[:issue_samples].any?
+  puts "Sample issues:"
+  report[:issue_samples].each do |issue|
+    puts "- Row #{issue[:row]} (#{issue[:applicant_id] || "n/a"}): #{issue[:issues].join(", ")}"
+  end
+end
+
+if options[:json_path]
+  puts "JSON report: #{File.expand_path(options[:json_path])}"
+end
