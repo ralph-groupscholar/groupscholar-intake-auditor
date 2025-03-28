@@ -66,6 +66,8 @@ email_counts = Hash.new(0)
 score_values = []
 submission_times = []
 issue_rows = []
+blank_status = 0
+blank_stage = 0
 
 email_regex = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
 now = Time.now
@@ -113,10 +115,18 @@ rows.each_with_index do |row, index|
   end
 
   status = row["status"].to_s.strip
-  status_counts[status] += 1 unless status.empty?
+  if status.empty?
+    blank_status += 1
+  else
+    status_counts[status] += 1
+  end
 
   stage = row["stage"].to_s.strip
-  stage_counts[stage] += 1 unless stage.empty?
+  if stage.empty?
+    blank_stage += 1
+  else
+    stage_counts[stage] += 1
+  end
 
   issue_rows << {
     row: row_number,
@@ -147,6 +157,18 @@ else
   }
 end
 
+field_completeness = {}
+required_headers.each do |header|
+  missing_count = missing_values[header] || 0
+  present_count = rows.length - missing_count
+  coverage = rows.empty? ? 0.0 : (present_count * 100.0 / rows.length).round(1)
+  field_completeness[header] = {
+    missing: missing_count,
+    present: present_count,
+    coverage_pct: coverage
+  }
+end
+
 report = {
   file: File.expand_path(csv_path),
   generated_at: now.iso8601,
@@ -154,9 +176,12 @@ report = {
   headers: headers,
   missing_headers: missing_headers,
   missing_values: missing_values.sort_by { |_, v| -v }.to_h,
+  field_completeness: field_completeness,
   duplicate_emails: duplicate_emails.sort_by { |_, v| -v }.to_h,
   status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
   stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
+  blank_status: blank_status,
+  blank_stage: blank_stage,
   score_stats: score_stats,
   submission_window: submission_window,
   recent_submissions_7d: recent_submissions,
@@ -186,6 +211,14 @@ else
   puts "Top missing values: none"
 end
 
+if rows.empty?
+  puts "Field completeness: n/a (no rows)"
+else
+  lowest_coverage = report[:field_completeness].sort_by { |_, v| v[:coverage_pct] }.first(5)
+  summary = lowest_coverage.map { |k, v| "#{k} #{v[:coverage_pct]}%" }.join(", ")
+  puts "Field completeness (lowest): #{summary}"
+end
+
 if report[:duplicate_emails].any?
   puts "Duplicate emails: #{report[:duplicate_emails].length}"
 else
@@ -205,6 +238,8 @@ else
 end
 
 puts "Recent submissions (7d): #{report[:recent_submissions_7d]}"
+puts "Blank status: #{report[:blank_status]}"
+puts "Blank stage: #{report[:blank_stage]}"
 puts "Issue rows: #{report[:issue_count]}"
 
 if report[:issue_samples].any?

@@ -8,6 +8,7 @@ Group Scholar Intake Auditor is a Ruby CLI that audits applicant intake CSV file
 - Summarizes status and stage distributions.
 - Computes score statistics and submission windows.
 - Highlights duplicate emails and recent submission counts.
+- Reports field completeness and blank status/stage counts.
 - Outputs JSON for deeper analysis or automation.
 
 ## Usage
