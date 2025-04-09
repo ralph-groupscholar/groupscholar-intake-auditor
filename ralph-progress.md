@@ -11,3 +11,6 @@
 ## Iteration 3
 - Added configurable recency/stale windows for submission timing checks.
 - Included duplicate applicant ID detection in console and JSON output.
+
+## Iteration 4
+- Added program distribution tracking with blank program counts in console and JSON output.

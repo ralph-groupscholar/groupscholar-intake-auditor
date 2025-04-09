@@ -80,6 +80,7 @@ required_headers_in_file = required_headers & headers
 missing_values = Hash.new(0)
 status_counts = Hash.new(0)
 stage_counts = Hash.new(0)
+program_counts = Hash.new(0)
 email_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
 score_values = []
@@ -87,6 +88,7 @@ submission_times = []
 issue_rows = []
 blank_status = 0
 blank_stage = 0
+blank_program = 0
 invalid_email_count = 0
 invalid_score_count = 0
 score_out_of_range_count = 0
@@ -173,6 +175,13 @@ rows.each_with_index do |row, index|
     stage_counts[stage] += 1
   end
 
+  program = row["program"].to_s.strip
+  if program.empty?
+    blank_program += 1
+  else
+    program_counts[program] += 1
+  end
+
   issue_rows << {
     row: row_number,
     applicant_id: row["applicant_id"],
@@ -227,8 +236,10 @@ report = {
   duplicate_applicant_ids: duplicate_applicant_ids.sort_by { |_, v| -v }.to_h,
   status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
   stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
+  program_distribution: program_counts.sort_by { |_, v| -v }.to_h,
   blank_status: blank_status,
   blank_stage: blank_stage,
+  blank_program: blank_program,
   score_stats: score_stats,
   submission_window: submission_window,
   recent_submissions: recent_submissions,
@@ -288,6 +299,7 @@ end
 
 puts "Blank status: #{report[:blank_status]}"
 puts "Blank stage: #{report[:blank_stage]}"
+puts "Blank program: #{report[:blank_program]}"
 puts "Invalid emails: #{report[:invalid_email_count]}"
 puts "Invalid scores: #{report[:invalid_score_count]}"
 puts "Scores out of range: #{report[:score_out_of_range_count]}"
@@ -308,8 +320,12 @@ else
 end
 
 puts "Recent submissions (#{report[:recent_submission_window_days]}d): #{report[:recent_submissions]}"
-puts "Blank status: #{report[:blank_status]}"
-puts "Blank stage: #{report[:blank_stage]}"
+if report[:program_distribution].any?
+  top_programs = report[:program_distribution].first(5).map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top programs: #{top_programs}"
+else
+  puts "Top programs: none"
+end
 puts "Issue rows: #{report[:issue_count]}"
 
 if report[:issue_samples].any?
