@@ -10,7 +10,9 @@ options = {
   sample_limit: 10,
   required_headers: nil,
   recent_days: 7,
-  stale_days: 180
+  stale_days: 180,
+  status_allowlist: nil,
+  stage_allowlist: nil
 }
 
 parser = OptionParser.new do |opts|
@@ -35,6 +37,16 @@ parser = OptionParser.new do |opts|
 
   opts.on("--stale-days N", Integer, "Days to flag as stale submissions (default: 180)") do |n|
     options[:stale_days] = [n, 0].max
+  end
+
+  opts.on("--status-allowlist VALUES", "Comma-separated allowed statuses (flags unknown values)") do |value|
+    statuses = value.to_s.split(",").map(&:strip).reject(&:empty?)
+    options[:status_allowlist] = statuses unless statuses.empty?
+  end
+
+  opts.on("--stage-allowlist VALUES", "Comma-separated allowed stages (flags unknown values)") do |value|
+    stages = value.to_s.split(",").map(&:strip).reject(&:empty?)
+    options[:stage_allowlist] = stages unless stages.empty?
   end
 
   opts.on("-h", "--help", "Show help") do
@@ -83,8 +95,12 @@ stage_counts = Hash.new(0)
 program_counts = Hash.new(0)
 email_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
+unknown_status_values = Hash.new(0)
+unknown_stage_values = Hash.new(0)
 score_values = []
 submission_times = []
+submission_weekday_counts = Hash.new(0)
+submission_hour_counts = Hash.new(0)
 issue_rows = []
 blank_status = 0
 blank_stage = 0
@@ -95,6 +111,9 @@ score_out_of_range_count = 0
 invalid_submitted_at_count = 0
 future_submissions_count = 0
 stale_submissions_count = 0
+unknown_status_count = 0
+unknown_stage_count = 0
+complete_required_rows = 0
 
 email_regex = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
 now = Time.now
@@ -105,14 +124,17 @@ recent_submissions = 0
 rows.each_with_index do |row, index|
   row_number = index + 2
   issues = []
+  missing_required = false
 
   required_headers_in_file.each do |header|
     value = row[header]
     if value.nil? || value.strip.empty?
       missing_values[header] += 1
       issues << "missing_#{header}"
+      missing_required = true
     end
   end
+  complete_required_rows += 1 unless missing_required
 
   email = row["email"].to_s.strip
   if !email.empty?
@@ -146,6 +168,8 @@ rows.each_with_index do |row, index|
     begin
       submitted_at = Time.parse(submitted_at_raw)
       submission_times << submitted_at
+      submission_weekday_counts[submitted_at.strftime("%A")] += 1
+      submission_hour_counts[submitted_at.strftime("%H")] += 1
       recent_submissions += 1 if submitted_at >= recent_cutoff
       if submitted_at > now
         future_submissions_count += 1
@@ -166,6 +190,11 @@ rows.each_with_index do |row, index|
     blank_status += 1
   else
     status_counts[status] += 1
+    if options[:status_allowlist] && !options[:status_allowlist].include?(status)
+      unknown_status_count += 1
+      unknown_status_values[status] += 1
+      issues << "unknown_status"
+    end
   end
 
   stage = row["stage"].to_s.strip
@@ -173,6 +202,11 @@ rows.each_with_index do |row, index|
     blank_stage += 1
   else
     stage_counts[stage] += 1
+    if options[:stage_allowlist] && !options[:stage_allowlist].include?(stage)
+      unknown_stage_count += 1
+      unknown_stage_values[stage] += 1
+      issues << "unknown_stage"
+    end
   end
 
   program = row["program"].to_s.strip
@@ -212,6 +246,14 @@ else
   }
 end
 
+complete_required_rows_pct = rows.empty? ? 0.0 : (complete_required_rows * 100.0 / rows.length).round(1)
+weekday_order = %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday]
+submission_weekday_distribution = weekday_order.each_with_object({}) do |day, acc|
+  count = submission_weekday_counts[day]
+  acc[day] = count if count.positive?
+end
+submission_hour_distribution = submission_hour_counts.sort_by { |k, _| k }.to_h
+
 field_completeness = {}
 required_headers_in_file.each do |header|
   missing_count = missing_values[header] || 0
@@ -232,6 +274,8 @@ report = {
   missing_headers: missing_headers,
   missing_values: missing_values.sort_by { |_, v| -v }.to_h,
   field_completeness: field_completeness,
+  complete_required_rows: complete_required_rows,
+  complete_required_rows_pct: complete_required_rows_pct,
   duplicate_emails: duplicate_emails.sort_by { |_, v| -v }.to_h,
   duplicate_applicant_ids: duplicate_applicant_ids.sort_by { |_, v| -v }.to_h,
   status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
@@ -251,8 +295,14 @@ report = {
   invalid_submitted_at_count: invalid_submitted_at_count,
   future_submissions_count: future_submissions_count,
   stale_submissions_count_180d: stale_submissions_count,
+  unknown_status_count: unknown_status_count,
+  unknown_stage_count: unknown_stage_count,
+  unknown_status_values: unknown_status_values.sort_by { |_, v| -v }.to_h,
+  unknown_stage_values: unknown_stage_values.sort_by { |_, v| -v }.to_h,
   issue_count: issue_rows.length,
-  issue_samples: issue_rows.first(options[:sample_limit])
+  issue_samples: issue_rows.first(options[:sample_limit]),
+  submission_weekday_distribution: submission_weekday_distribution,
+  submission_hour_distribution: submission_hour_distribution
 }
 
 if options[:json_path]
@@ -285,6 +335,8 @@ else
   puts "Field completeness (lowest): #{summary}"
 end
 
+puts "Complete required rows: #{report[:complete_required_rows]} (#{report[:complete_required_rows_pct]}%)"
+
 if report[:duplicate_emails].any?
   puts "Duplicate emails: #{report[:duplicate_emails].length}"
 else
@@ -306,6 +358,8 @@ puts "Scores out of range: #{report[:score_out_of_range_count]}"
 puts "Invalid submitted_at: #{report[:invalid_submitted_at_count]}"
 puts "Future submissions: #{report[:future_submissions_count]}"
 puts "Stale submissions (#{report[:stale_submission_window_days]}d): #{report[:stale_submissions_count_180d]}"
+puts "Unknown statuses: #{report[:unknown_status_count]}"
+puts "Unknown stages: #{report[:unknown_stage_count]}"
 
 if report[:score_stats]
   puts "Score stats: min #{report[:score_stats][:min]}, avg #{report[:score_stats][:avg]}, max #{report[:score_stats][:max]}"
@@ -326,6 +380,19 @@ if report[:program_distribution].any?
 else
   puts "Top programs: none"
 end
+
+if report[:submission_weekday_distribution].any?
+  top_days = report[:submission_weekday_distribution].sort_by { |_, v| -v }.first(3)
+  day_summary = top_days.map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top submission days: #{day_summary}"
+end
+
+if report[:submission_hour_distribution].any?
+  top_hours = report[:submission_hour_distribution].sort_by { |_, v| -v }.first(3)
+  hour_summary = top_hours.map { |k, v| "#{k}:00=#{v}" }.join(", ")
+  puts "Top submission hours: #{hour_summary}"
+end
+
 puts "Issue rows: #{report[:issue_count]}"
 
 if report[:issue_samples].any?

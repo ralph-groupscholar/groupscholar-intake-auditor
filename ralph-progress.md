@@ -14,3 +14,7 @@
 
 ## Iteration 4
 - Added program distribution tracking with blank program counts in console and JSON output.
+
+## Iteration 5
+- Added complete-required-row coverage plus submission weekday/hour trend summaries.
+- Added status/stage allowlists to flag unknown values in console and JSON output.
