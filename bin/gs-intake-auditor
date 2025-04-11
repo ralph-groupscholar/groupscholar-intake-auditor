@@ -93,6 +93,7 @@ missing_values = Hash.new(0)
 status_counts = Hash.new(0)
 stage_counts = Hash.new(0)
 program_counts = Hash.new(0)
+program_required_stats = {}
 email_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
 unknown_status_values = Hash.new(0)
@@ -125,6 +126,7 @@ rows.each_with_index do |row, index|
   row_number = index + 2
   issues = []
   missing_required = false
+  missing_fields = []
 
   required_headers_in_file.each do |header|
     value = row[header]
@@ -132,6 +134,7 @@ rows.each_with_index do |row, index|
       missing_values[header] += 1
       issues << "missing_#{header}"
       missing_required = true
+      missing_fields << header
     end
   end
   complete_required_rows += 1 unless missing_required
@@ -214,6 +217,16 @@ rows.each_with_index do |row, index|
     blank_program += 1
   else
     program_counts[program] += 1
+    program_stats = program_required_stats[program] ||= {
+      total_rows: 0,
+      missing_required_rows: 0,
+      missing_required_fields: Hash.new(0)
+    }
+    program_stats[:total_rows] += 1
+    if missing_required
+      program_stats[:missing_required_rows] += 1
+      missing_fields.each { |field| program_stats[:missing_required_fields][field] += 1 }
+    end
   end
 
   issue_rows << {
@@ -266,6 +279,23 @@ required_headers_in_file.each do |header|
   }
 end
 
+program_required_completeness = program_required_stats.map do |program, stats|
+  total = stats[:total_rows]
+  missing = stats[:missing_required_rows]
+  coverage_pct = total.zero? ? 0.0 : ((total - missing) * 100.0 / total).round(1)
+  top_missing_fields = stats[:missing_required_fields].sort_by { |_, v| -v }.to_h
+  [
+    program,
+    {
+      total_rows: total,
+      missing_required_rows: missing,
+      missing_required_pct: total.zero? ? 0.0 : (missing * 100.0 / total).round(1),
+      coverage_pct: coverage_pct,
+      missing_required_fields: top_missing_fields
+    }
+  ]
+end.to_h
+
 report = {
   file: File.expand_path(csv_path),
   generated_at: now.iso8601,
@@ -281,6 +311,7 @@ report = {
   status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
   stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
   program_distribution: program_counts.sort_by { |_, v| -v }.to_h,
+  program_required_completeness: program_required_completeness.sort_by { |_, v| -v[:missing_required_pct] }.to_h,
   blank_status: blank_status,
   blank_stage: blank_stage,
   blank_program: blank_program,
@@ -336,6 +367,13 @@ else
 end
 
 puts "Complete required rows: #{report[:complete_required_rows]} (#{report[:complete_required_rows_pct]}%)"
+
+if report[:program_required_completeness].any?
+  top_program_gaps = report[:program_required_completeness].first(3).map do |program, stats|
+    "#{program} #{stats[:missing_required_pct]}% missing"
+  end
+  puts "Program required gaps (top): #{top_program_gaps.join(", ")}"
+end
 
 if report[:duplicate_emails].any?
   puts "Duplicate emails: #{report[:duplicate_emails].length}"

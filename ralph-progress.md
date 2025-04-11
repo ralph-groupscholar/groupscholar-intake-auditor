@@ -16,5 +16,8 @@
 - Added program distribution tracking with blank program counts in console and JSON output.
 
 ## Iteration 5
+- Added per-program required-field completeness gaps to highlight weak intake coverage by program.
+
+## Iteration 5
 - Added complete-required-row coverage plus submission weekday/hour trend summaries.
 - Added status/stage allowlists to flag unknown values in console and JSON output.
