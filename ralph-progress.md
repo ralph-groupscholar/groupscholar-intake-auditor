@@ -21,3 +21,6 @@
 ## Iteration 5
 - Added complete-required-row coverage plus submission weekday/hour trend summaries.
 - Added status/stage allowlists to flag unknown values in console and JSON output.
+
+## Iteration 6
+- Added status-stage and program-status distribution tracking in console and JSON output.

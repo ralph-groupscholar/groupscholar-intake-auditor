@@ -94,6 +94,8 @@ status_counts = Hash.new(0)
 stage_counts = Hash.new(0)
 program_counts = Hash.new(0)
 program_required_stats = {}
+status_stage_distribution = Hash.new { |hash, key| hash[key] = Hash.new(0) }
+program_status_distribution = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 email_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
 unknown_status_values = Hash.new(0)
@@ -217,6 +219,7 @@ rows.each_with_index do |row, index|
     blank_program += 1
   else
     program_counts[program] += 1
+    program_status_distribution[program][status] += 1 unless status.empty?
     program_stats = program_required_stats[program] ||= {
       total_rows: 0,
       missing_required_rows: 0,
@@ -227,6 +230,10 @@ rows.each_with_index do |row, index|
       program_stats[:missing_required_rows] += 1
       missing_fields.each { |field| program_stats[:missing_required_fields][field] += 1 }
     end
+  end
+
+  if !status.empty? && !stage.empty?
+    status_stage_distribution[status][stage] += 1
   end
 
   issue_rows << {
@@ -296,6 +303,14 @@ program_required_completeness = program_required_stats.map do |program, stats|
   ]
 end.to_h
 
+status_stage_distribution_sorted = status_stage_distribution.map do |status, stages|
+  [status, stages.sort_by { |_, v| -v }.to_h]
+end.sort_by { |_, stages| -stages.values.sum }.to_h
+
+program_status_distribution_sorted = program_status_distribution.map do |program, statuses|
+  [program, statuses.sort_by { |_, v| -v }.to_h]
+end.sort_by { |_, statuses| -statuses.values.sum }.to_h
+
 report = {
   file: File.expand_path(csv_path),
   generated_at: now.iso8601,
@@ -312,6 +327,8 @@ report = {
   stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
   program_distribution: program_counts.sort_by { |_, v| -v }.to_h,
   program_required_completeness: program_required_completeness.sort_by { |_, v| -v[:missing_required_pct] }.to_h,
+  status_stage_distribution: status_stage_distribution_sorted,
+  program_status_distribution: program_status_distribution_sorted,
   blank_status: blank_status,
   blank_stage: blank_stage,
   blank_program: blank_program,
@@ -417,6 +434,26 @@ if report[:program_distribution].any?
   puts "Top programs: #{top_programs}"
 else
   puts "Top programs: none"
+end
+
+if report[:status_stage_distribution].any?
+  top_pairs = report[:status_stage_distribution].flat_map do |status, stages|
+    stages.map { |stage, count| ["#{status} -> #{stage}", count] }
+  end.sort_by { |_, v| -v }.first(5)
+  pair_summary = top_pairs.map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top status-stage combos: #{pair_summary}"
+else
+  puts "Top status-stage combos: none"
+end
+
+if report[:program_status_distribution].any?
+  top_program_pairs = report[:program_status_distribution].flat_map do |program, statuses|
+    statuses.map { |status, count| ["#{program} -> #{status}", count] }
+  end.sort_by { |_, v| -v }.first(5)
+  program_summary = top_program_pairs.map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top program-status combos: #{program_summary}"
+else
+  puts "Top program-status combos: none"
 end
 
 if report[:submission_weekday_distribution].any?
