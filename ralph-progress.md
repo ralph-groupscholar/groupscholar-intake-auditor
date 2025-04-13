@@ -23,4 +23,8 @@
 - Added status/stage allowlists to flag unknown values in console and JSON output.
 
 ## Iteration 6
+- Added email domain distribution summaries to surface top intake email domains.
+- Added submission recency buckets for fast age profiling in console and JSON output.
+
+## Iteration 6
 - Added status-stage and program-status distribution tracking in console and JSON output.

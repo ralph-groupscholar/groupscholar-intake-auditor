@@ -97,6 +97,7 @@ program_required_stats = {}
 status_stage_distribution = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 program_status_distribution = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 email_counts = Hash.new(0)
+email_domain_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
 unknown_status_values = Hash.new(0)
 unknown_stage_values = Hash.new(0)
@@ -123,6 +124,8 @@ now = Time.now
 recent_cutoff = now - (options[:recent_days] * 24 * 60 * 60)
 stale_cutoff = now - (options[:stale_days] * 24 * 60 * 60)
 recent_submissions = 0
+recency_buckets = Hash.new(0)
+recency_bucket_limits = [7, 30, 90, 180]
 
 rows.each_with_index do |row, index|
   row_number = index + 2
@@ -144,7 +147,10 @@ rows.each_with_index do |row, index|
   email = row["email"].to_s.strip
   if !email.empty?
     email_counts[email.downcase] += 1
-    unless email_regex.match?(email)
+    if email_regex.match?(email)
+      domain = email.split("@", 2)[1].to_s.downcase
+      email_domain_counts[domain] += 1 unless domain.empty?
+    else
       invalid_email_count += 1
       issues << "invalid_email"
     end
@@ -176,6 +182,9 @@ rows.each_with_index do |row, index|
       submission_weekday_counts[submitted_at.strftime("%A")] += 1
       submission_hour_counts[submitted_at.strftime("%H")] += 1
       recent_submissions += 1 if submitted_at >= recent_cutoff
+      age_days = ((now - submitted_at) / (24 * 60 * 60)).floor
+      bucket_label = recency_bucket_limits.find { |limit| age_days <= limit }
+      recency_buckets[(bucket_label ? "age_#{bucket_label}d" : "age_over_180d")] += 1
       if submitted_at > now
         future_submissions_count += 1
         issues << "submitted_at_in_future"
@@ -322,6 +331,7 @@ report = {
   complete_required_rows: complete_required_rows,
   complete_required_rows_pct: complete_required_rows_pct,
   duplicate_emails: duplicate_emails.sort_by { |_, v| -v }.to_h,
+  email_domain_distribution: email_domain_counts.sort_by { |_, v| -v }.to_h,
   duplicate_applicant_ids: duplicate_applicant_ids.sort_by { |_, v| -v }.to_h,
   status_distribution: status_counts.sort_by { |_, v| -v }.to_h,
   stage_distribution: stage_counts.sort_by { |_, v| -v }.to_h,
@@ -350,7 +360,8 @@ report = {
   issue_count: issue_rows.length,
   issue_samples: issue_rows.first(options[:sample_limit]),
   submission_weekday_distribution: submission_weekday_distribution,
-  submission_hour_distribution: submission_hour_distribution
+  submission_hour_distribution: submission_hour_distribution,
+  submission_recency_buckets: recency_buckets.sort_by { |_, v| -v }.to_h
 }
 
 if options[:json_path]
@@ -398,6 +409,13 @@ else
   puts "Duplicate emails: none"
 end
 
+if report[:email_domain_distribution].any?
+  top_domains = report[:email_domain_distribution].first(5).map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Top email domains: #{top_domains}"
+else
+  puts "Top email domains: none"
+end
+
 if report[:duplicate_applicant_ids].any?
   puts "Duplicate applicant IDs: #{report[:duplicate_applicant_ids].length}"
 else
@@ -429,6 +447,10 @@ else
 end
 
 puts "Recent submissions (#{report[:recent_submission_window_days]}d): #{report[:recent_submissions]}"
+if report[:submission_recency_buckets].any?
+  bucket_summary = report[:submission_recency_buckets].map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Submission recency buckets: #{bucket_summary}"
+end
 if report[:program_distribution].any?
   top_programs = report[:program_distribution].first(5).map { |k, v| "#{k}=#{v}" }.join(", ")
   puts "Top programs: #{top_programs}"
