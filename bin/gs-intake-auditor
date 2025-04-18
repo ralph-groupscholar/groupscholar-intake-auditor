@@ -118,6 +118,7 @@ stale_submissions_count = 0
 unknown_status_count = 0
 unknown_stage_count = 0
 complete_required_rows = 0
+submission_age_days = []
 
 email_regex = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
 now = Time.now
@@ -182,7 +183,8 @@ rows.each_with_index do |row, index|
       submission_weekday_counts[submitted_at.strftime("%A")] += 1
       submission_hour_counts[submitted_at.strftime("%H")] += 1
       recent_submissions += 1 if submitted_at >= recent_cutoff
-      age_days = ((now - submitted_at) / (24 * 60 * 60)).floor
+      age_days = (now - submitted_at) / (24 * 60 * 60)
+      submission_age_days << age_days
       bucket_label = recency_bucket_limits.find { |limit| age_days <= limit }
       recency_buckets[(bucket_label ? "age_#{bucket_label}d" : "age_over_180d")] += 1
       if submitted_at > now
@@ -255,6 +257,13 @@ end
 duplicate_emails = email_counts.select { |_email, count| count > 1 }
 duplicate_applicant_ids = applicant_id_counts.select { |_id, count| count > 1 }
 
+def percentile(values, pct)
+  return nil if values.empty?
+  sorted = values.sort
+  rank = (pct * (sorted.length - 1)).round
+  sorted[rank]
+end
+
 score_stats = if score_values.empty?
   nil
 else
@@ -262,7 +271,10 @@ else
   {
     min: score_values.min,
     max: score_values.max,
-    avg: (total / score_values.length.to_f).round(2)
+    avg: (total / score_values.length.to_f).round(2),
+    p50: percentile(score_values, 0.50),
+    p90: percentile(score_values, 0.90),
+    p95: percentile(score_values, 0.95)
   }
 end
 
@@ -272,6 +284,20 @@ else
   {
     earliest: submission_times.min.iso8601,
     latest: submission_times.max.iso8601
+  }
+end
+
+submission_age_stats = if submission_age_days.empty?
+  nil
+else
+  total = submission_age_days.sum
+  {
+    min_days: submission_age_days.min.round(2),
+    max_days: submission_age_days.max.round(2),
+    avg_days: (total / submission_age_days.length.to_f).round(2),
+    p50_days: percentile(submission_age_days, 0.50)&.round(2),
+    p90_days: percentile(submission_age_days, 0.90)&.round(2),
+    p95_days: percentile(submission_age_days, 0.95)&.round(2)
   }
 end
 
@@ -344,6 +370,7 @@ report = {
   blank_program: blank_program,
   score_stats: score_stats,
   submission_window: submission_window,
+  submission_age_days_stats: submission_age_stats,
   recent_submissions: recent_submissions,
   recent_submission_window_days: options[:recent_days],
   stale_submission_window_days: options[:stale_days],
@@ -435,7 +462,8 @@ puts "Unknown statuses: #{report[:unknown_status_count]}"
 puts "Unknown stages: #{report[:unknown_stage_count]}"
 
 if report[:score_stats]
-  puts "Score stats: min #{report[:score_stats][:min]}, avg #{report[:score_stats][:avg]}, max #{report[:score_stats][:max]}"
+  stats = report[:score_stats]
+  puts "Score stats: min #{stats[:min]}, avg #{stats[:avg]}, max #{stats[:max]}, p50 #{stats[:p50]}, p90 #{stats[:p90]}, p95 #{stats[:p95]}"
 else
   puts "Score stats: none"
 end
@@ -444,6 +472,11 @@ if report[:submission_window]
   puts "Submission window: #{report[:submission_window][:earliest]} -> #{report[:submission_window][:latest]}"
 else
   puts "Submission window: none"
+end
+
+if report[:submission_age_days_stats]
+  stats = report[:submission_age_days_stats]
+  puts "Submission age (days): min #{stats[:min_days]}, avg #{stats[:avg_days]}, max #{stats[:max_days]}, p50 #{stats[:p50_days]}, p90 #{stats[:p90_days]}, p95 #{stats[:p95_days]}"
 end
 
 puts "Recent submissions (#{report[:recent_submission_window_days]}d): #{report[:recent_submissions]}"
