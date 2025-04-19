@@ -30,4 +30,8 @@
 - Added status-stage and program-status distribution tracking in console and JSON output.
 
 ## Iteration 7
+- Added optional Postgres logging for audit summaries via `--db-log` and documented usage.
+- Provisioned production schema/table with seed audit run records.
+
+## Iteration 7
 - Added score percentiles plus submission age statistics (min/avg/max and p50/p90/p95) to console and JSON output.

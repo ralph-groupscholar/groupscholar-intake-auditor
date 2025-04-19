@@ -48,6 +48,12 @@ Validate status/stage values against an allowlist:
 bin/gs-intake-auditor path/to/intake.csv --status-allowlist "Submitted,In Review,Final" --stage-allowlist "Round 1,Round 2,Awarded"
 ```
 
+Log the audit summary to Postgres (expects GS_INTAKE_AUDITOR_DATABASE_URL or DATABASE_URL):
+
+```bash
+bin/gs-intake-auditor path/to/intake.csv --db-log
+```
+
 ## Expected headers
 
 ```
@@ -56,3 +62,4 @@ applicant_id, name, email, program, submitted_at, status, stage, score
 
 ## Tech
 - Ruby 2.6+ (standard library only)
+- Optional: pg gem for Postgres logging

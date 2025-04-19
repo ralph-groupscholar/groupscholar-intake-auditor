@@ -3,6 +3,7 @@
 require "csv"
 require "json"
 require "optparse"
+require "securerandom"
 require "time"
 
 options = {
@@ -12,7 +13,8 @@ options = {
   recent_days: 7,
   stale_days: 180,
   status_allowlist: nil,
-  stage_allowlist: nil
+  stage_allowlist: nil,
+  db_log: false
 }
 
 parser = OptionParser.new do |opts|
@@ -52,6 +54,10 @@ parser = OptionParser.new do |opts|
   opts.on("-h", "--help", "Show help") do
     puts opts
     exit 0
+  end
+
+  opts.on("--db-log", "Write audit summary to Postgres via GS_INTAKE_AUDITOR_DATABASE_URL or DATABASE_URL") do
+    options[:db_log] = true
   end
 end
 
@@ -391,8 +397,123 @@ report = {
   submission_recency_buckets: recency_buckets.sort_by { |_, v| -v }.to_h
 }
 
+def log_report_to_db(report, db_url)
+  begin
+    require "pg"
+  rescue LoadError
+    warn "pg gem missing. Install with: gem install pg"
+    return nil
+  end
+
+  conn = PG.connect(db_url)
+  run_id = SecureRandom.uuid
+  sql = <<~SQL
+    INSERT INTO intake_auditor.audit_runs (
+      id,
+      generated_at,
+      file_path,
+      total_rows,
+      missing_headers,
+      missing_values,
+      field_completeness,
+      complete_required_rows,
+      complete_required_rows_pct,
+      duplicate_emails,
+      duplicate_applicant_ids,
+      status_distribution,
+      stage_distribution,
+      program_distribution,
+      program_required_completeness,
+      score_stats,
+      submission_window,
+      submission_age_days_stats,
+      recent_submissions,
+      recent_submission_window_days,
+      stale_submission_window_days,
+      invalid_email_count,
+      invalid_score_count,
+      score_out_of_range_count,
+      invalid_submitted_at_count,
+      future_submissions_count,
+      stale_submissions_count,
+      unknown_status_count,
+      unknown_stage_count,
+      blank_status,
+      blank_stage,
+      blank_program,
+      email_domain_distribution,
+      status_stage_distribution,
+      program_status_distribution,
+      submission_weekday_distribution,
+      submission_hour_distribution,
+      submission_recency_buckets,
+      issue_count
+    ) VALUES (
+      $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
+      $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21, $22,
+      $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34::jsonb, $35::jsonb, $36::jsonb,
+      $37::jsonb, $38::jsonb, $39
+    )
+  SQL
+  params = [
+    run_id,
+    report[:generated_at],
+    report[:file],
+    report[:total_rows],
+    JSON.dump(report[:missing_headers]),
+    JSON.dump(report[:missing_values]),
+    JSON.dump(report[:field_completeness]),
+    report[:complete_required_rows],
+    report[:complete_required_rows_pct],
+    JSON.dump(report[:duplicate_emails]),
+    JSON.dump(report[:duplicate_applicant_ids]),
+    JSON.dump(report[:status_distribution]),
+    JSON.dump(report[:stage_distribution]),
+    JSON.dump(report[:program_distribution]),
+    JSON.dump(report[:program_required_completeness]),
+    JSON.dump(report[:score_stats]),
+    JSON.dump(report[:submission_window]),
+    JSON.dump(report[:submission_age_days_stats]),
+    report[:recent_submissions],
+    report[:recent_submission_window_days],
+    report[:stale_submission_window_days],
+    report[:invalid_email_count],
+    report[:invalid_score_count],
+    report[:score_out_of_range_count],
+    report[:invalid_submitted_at_count],
+    report[:future_submissions_count],
+    report[:stale_submissions_count_180d],
+    report[:unknown_status_count],
+    report[:unknown_stage_count],
+    report[:blank_status],
+    report[:blank_stage],
+    report[:blank_program],
+    JSON.dump(report[:email_domain_distribution]),
+    JSON.dump(report[:status_stage_distribution]),
+    JSON.dump(report[:program_status_distribution]),
+    JSON.dump(report[:submission_weekday_distribution]),
+    JSON.dump(report[:submission_hour_distribution]),
+    JSON.dump(report[:submission_recency_buckets]),
+    report[:issue_count]
+  ]
+  conn.exec_params(sql, params)
+  run_id
+ensure
+  conn&.close
+end
+
 if options[:json_path]
   File.write(options[:json_path], JSON.pretty_generate(report))
+end
+
+if options[:db_log]
+  db_url = ENV["GS_INTAKE_AUDITOR_DATABASE_URL"] || ENV["DATABASE_URL"]
+  if db_url.nil? || db_url.strip.empty?
+    warn "DB log requested but GS_INTAKE_AUDITOR_DATABASE_URL/DATABASE_URL not set."
+  else
+    run_id = log_report_to_db(report, db_url)
+    puts "DB log id: #{run_id}" if run_id
+  end
 end
 
 puts "Intake Audit Report"
