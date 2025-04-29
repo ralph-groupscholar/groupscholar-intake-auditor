@@ -35,3 +35,7 @@
 
 ## Iteration 7
 - Added score percentiles plus submission age statistics (min/avg/max and p50/p90/p95) to console and JSON output.
+
+## Iteration 8
+- Added production Postgres schema and seed data for audit run logging.
+- Documented database setup for production use.

@@ -13,6 +13,7 @@ Group Scholar Intake Auditor is a Ruby CLI that audits applicant intake CSV file
 - Highlights duplicate emails and recent submission counts.
 - Highlights duplicate applicant IDs.
 - Summarizes top email domains and submission recency buckets.
+- Adds stale submission counts by program plus daily/weekly submission trends.
 - Reports field completeness and blank status/stage counts.
 - Calculates complete-required-row coverage and submission day/hour trends.
 - Flags unknown status/stage values when allowlists are supplied.
@@ -42,6 +43,12 @@ Tune the recency and stale submission windows:
 bin/gs-intake-auditor path/to/intake.csv --recent-days 14 --stale-days 365
 ```
 
+Control the daily/weekly submission trend windows:
+
+```bash
+bin/gs-intake-auditor path/to/intake.csv --trend-days 21 --trend-weeks 16
+```
+
 Validate status/stage values against an allowlist:
 
 ```bash
@@ -52,6 +59,21 @@ Log the audit summary to Postgres (expects GS_INTAKE_AUDITOR_DATABASE_URL or DAT
 
 ```bash
 bin/gs-intake-auditor path/to/intake.csv --db-log
+```
+
+### Postgres setup (production only)
+
+Create the schema/table and seed the production database:
+
+```bash
+psql "$GS_INTAKE_AUDITOR_DATABASE_URL" -f db/schema.sql
+psql "$GS_INTAKE_AUDITOR_DATABASE_URL" -f db/seed.sql
+```
+
+Or run the bootstrap helper (uses GS_INTAKE_AUDITOR_DATABASE_URL or DATABASE_URL):
+
+```bash
+ruby db/bootstrap.rb
 ```
 
 ## Expected headers

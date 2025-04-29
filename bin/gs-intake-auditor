@@ -5,6 +5,7 @@ require "json"
 require "optparse"
 require "securerandom"
 require "time"
+require "date"
 
 options = {
   json_path: nil,
@@ -12,6 +13,8 @@ options = {
   required_headers: nil,
   recent_days: 7,
   stale_days: 180,
+  trend_days: 14,
+  trend_weeks: 12,
   status_allowlist: nil,
   stage_allowlist: nil,
   db_log: false
@@ -39,6 +42,14 @@ parser = OptionParser.new do |opts|
 
   opts.on("--stale-days N", Integer, "Days to flag as stale submissions (default: 180)") do |n|
     options[:stale_days] = [n, 0].max
+  end
+
+  opts.on("--trend-days N", Integer, "Days to show in submission trend (default: 14)") do |n|
+    options[:trend_days] = [n, 0].max
+  end
+
+  opts.on("--trend-weeks N", Integer, "Weeks to show in submission trend (default: 12)") do |n|
+    options[:trend_weeks] = [n, 0].max
   end
 
   opts.on("--status-allowlist VALUES", "Comma-separated allowed statuses (flags unknown values)") do |value|
@@ -105,12 +116,15 @@ program_status_distribution = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 email_counts = Hash.new(0)
 email_domain_counts = Hash.new(0)
 applicant_id_counts = Hash.new(0)
+stale_submissions_by_program = Hash.new(0)
 unknown_status_values = Hash.new(0)
 unknown_stage_values = Hash.new(0)
 score_values = []
 submission_times = []
 submission_weekday_counts = Hash.new(0)
 submission_hour_counts = Hash.new(0)
+daily_trend_counts = Hash.new(0)
+weekly_trend_counts = Hash.new(0)
 issue_rows = []
 blank_status = 0
 blank_stage = 0
@@ -128,17 +142,22 @@ submission_age_days = []
 
 email_regex = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
 now = Time.now
+today = Date.today
 recent_cutoff = now - (options[:recent_days] * 24 * 60 * 60)
 stale_cutoff = now - (options[:stale_days] * 24 * 60 * 60)
 recent_submissions = 0
 recency_buckets = Hash.new(0)
 recency_bucket_limits = [7, 30, 90, 180]
+trend_days_start = today - ([options[:trend_days], 1].max - 1)
+current_week_start = today - ((today.wday + 6) % 7)
+trend_weeks_start = current_week_start - (7 * ([options[:trend_weeks], 1].max - 1))
 
 rows.each_with_index do |row, index|
   row_number = index + 2
   issues = []
   missing_required = false
   missing_fields = []
+  parsed_submitted_at = nil
 
   required_headers_in_file.each do |header|
     value = row[header]
@@ -184,20 +203,28 @@ rows.each_with_index do |row, index|
   submitted_at_raw = row["submitted_at"].to_s.strip
   unless submitted_at_raw.empty?
     begin
-      submitted_at = Time.parse(submitted_at_raw)
-      submission_times << submitted_at
-      submission_weekday_counts[submitted_at.strftime("%A")] += 1
-      submission_hour_counts[submitted_at.strftime("%H")] += 1
-      recent_submissions += 1 if submitted_at >= recent_cutoff
-      age_days = (now - submitted_at) / (24 * 60 * 60)
+      parsed_submitted_at = Time.parse(submitted_at_raw)
+      submission_times << parsed_submitted_at
+      submission_weekday_counts[parsed_submitted_at.strftime("%A")] += 1
+      submission_hour_counts[parsed_submitted_at.strftime("%H")] += 1
+      recent_submissions += 1 if parsed_submitted_at >= recent_cutoff
+      submission_date = parsed_submitted_at.to_date
+      if submission_date >= trend_days_start
+        daily_trend_counts[submission_date.iso8601] += 1
+      end
+      week_start = submission_date - ((submission_date.wday + 6) % 7)
+      if week_start >= trend_weeks_start
+        weekly_trend_counts[week_start.iso8601] += 1
+      end
+      age_days = (now - parsed_submitted_at) / (24 * 60 * 60)
       submission_age_days << age_days
       bucket_label = recency_bucket_limits.find { |limit| age_days <= limit }
       recency_buckets[(bucket_label ? "age_#{bucket_label}d" : "age_over_180d")] += 1
-      if submitted_at > now
+      if parsed_submitted_at > now
         future_submissions_count += 1
         issues << "submitted_at_in_future"
       end
-      if submitted_at < stale_cutoff
+      if parsed_submitted_at < stale_cutoff
         stale_submissions_count += 1
         issues << "submitted_at_stale"
       end
@@ -237,6 +264,9 @@ rows.each_with_index do |row, index|
   else
     program_counts[program] += 1
     program_status_distribution[program][status] += 1 unless status.empty?
+    if parsed_submitted_at && parsed_submitted_at < stale_cutoff
+      stale_submissions_by_program[program] += 1
+    end
     program_stats = program_required_stats[program] ||= {
       total_rows: 0,
       missing_required_rows: 0,
@@ -314,6 +344,24 @@ submission_weekday_distribution = weekday_order.each_with_object({}) do |day, ac
   acc[day] = count if count.positive?
 end
 submission_hour_distribution = submission_hour_counts.sort_by { |k, _| k }.to_h
+submission_daily_trend = if options[:trend_days] <= 0
+  {}
+else
+  (0...options[:trend_days]).each_with_object({}) do |offset, acc|
+    day = trend_days_start + offset
+    key = day.iso8601
+    acc[key] = daily_trend_counts[key] || 0
+  end
+end
+submission_weekly_trend = if options[:trend_weeks] <= 0
+  {}
+else
+  (0...options[:trend_weeks]).each_with_object({}) do |offset, acc|
+    week_start = trend_weeks_start + (7 * offset)
+    key = week_start.iso8601
+    acc[key] = weekly_trend_counts[key] || 0
+  end
+end
 
 field_completeness = {}
 required_headers_in_file.each do |header|
@@ -386,6 +434,7 @@ report = {
   invalid_submitted_at_count: invalid_submitted_at_count,
   future_submissions_count: future_submissions_count,
   stale_submissions_count_180d: stale_submissions_count,
+  stale_submissions_by_program: stale_submissions_by_program.sort_by { |_, v| -v }.to_h,
   unknown_status_count: unknown_status_count,
   unknown_stage_count: unknown_stage_count,
   unknown_status_values: unknown_status_values.sort_by { |_, v| -v }.to_h,
@@ -394,7 +443,9 @@ report = {
   issue_samples: issue_rows.first(options[:sample_limit]),
   submission_weekday_distribution: submission_weekday_distribution,
   submission_hour_distribution: submission_hour_distribution,
-  submission_recency_buckets: recency_buckets.sort_by { |_, v| -v }.to_h
+  submission_recency_buckets: recency_buckets.sort_by { |_, v| -v }.to_h,
+  submission_daily_trend: submission_daily_trend,
+  submission_weekly_trend: submission_weekly_trend
 }
 
 def log_report_to_db(report, db_url)
@@ -436,6 +487,7 @@ def log_report_to_db(report, db_url)
       invalid_submitted_at_count,
       future_submissions_count,
       stale_submissions_count,
+      stale_submissions_by_program,
       unknown_status_count,
       unknown_stage_count,
       blank_status,
@@ -447,12 +499,14 @@ def log_report_to_db(report, db_url)
       submission_weekday_distribution,
       submission_hour_distribution,
       submission_recency_buckets,
+      submission_daily_trend,
+      submission_weekly_trend,
       issue_count
     ) VALUES (
       $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
       $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19, $20, $21, $22,
-      $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34::jsonb, $35::jsonb, $36::jsonb,
-      $37::jsonb, $38::jsonb, $39
+      $23, $24, $25, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $34, $35::jsonb, $36::jsonb,
+      $37::jsonb, $38::jsonb, $39::jsonb, $40::jsonb, $41::jsonb, $42
     )
   SQL
   params = [
@@ -483,6 +537,7 @@ def log_report_to_db(report, db_url)
     report[:invalid_submitted_at_count],
     report[:future_submissions_count],
     report[:stale_submissions_count_180d],
+    JSON.dump(report[:stale_submissions_by_program]),
     report[:unknown_status_count],
     report[:unknown_stage_count],
     report[:blank_status],
@@ -494,6 +549,8 @@ def log_report_to_db(report, db_url)
     JSON.dump(report[:submission_weekday_distribution]),
     JSON.dump(report[:submission_hour_distribution]),
     JSON.dump(report[:submission_recency_buckets]),
+    JSON.dump(report[:submission_daily_trend]),
+    JSON.dump(report[:submission_weekly_trend]),
     report[:issue_count]
   ]
   conn.exec_params(sql, params)
@@ -579,6 +636,10 @@ puts "Scores out of range: #{report[:score_out_of_range_count]}"
 puts "Invalid submitted_at: #{report[:invalid_submitted_at_count]}"
 puts "Future submissions: #{report[:future_submissions_count]}"
 puts "Stale submissions (#{report[:stale_submission_window_days]}d): #{report[:stale_submissions_count_180d]}"
+if report[:stale_submissions_by_program].any?
+  top_stale_programs = report[:stale_submissions_by_program].first(3).map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Stale submissions by program (top): #{top_stale_programs}"
+end
 puts "Unknown statuses: #{report[:unknown_status_count]}"
 puts "Unknown stages: #{report[:unknown_stage_count]}"
 
@@ -642,6 +703,16 @@ if report[:submission_hour_distribution].any?
   top_hours = report[:submission_hour_distribution].sort_by { |_, v| -v }.first(3)
   hour_summary = top_hours.map { |k, v| "#{k}:00=#{v}" }.join(", ")
   puts "Top submission hours: #{hour_summary}"
+end
+
+if report[:submission_daily_trend].any?
+  trend_summary = report[:submission_daily_trend].map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Submission trend daily (#{options[:trend_days]}d): #{trend_summary}"
+end
+
+if report[:submission_weekly_trend].any?
+  trend_summary = report[:submission_weekly_trend].map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Submission trend weekly (#{options[:trend_weeks]}w): #{trend_summary}"
 end
 
 puts "Issue rows: #{report[:issue_count]}"
