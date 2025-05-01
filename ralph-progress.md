@@ -39,3 +39,18 @@
 ## Iteration 8
 - Added production Postgres schema and seed data for audit run logging.
 - Documented database setup for production use.
+
+## Iteration 8
+- Added daily/weekly submission trend windows plus stale submissions by program.
+- Extended JSON output, console summary, and DB logging/schema with trend and stale-program fields.
+- Seeded the production intake_auditor audit_runs table with a realistic sample record.
+
+## Iteration 9
+- Added per-program and per-status score stats plus missing-score counts to the audit report and DB log.
+- Added recent submissions by program and per-program recency buckets in JSON and console output.
+- Added a `--now` override for reproducible audits and created a minitest coverage suite with fixtures.
+
+## Iteration 10
+- Added issue type frequency counts plus multi-issue row metrics to the audit report.
+- Surfaced top issue types and multi-flag rows in the console summary and JSON output.
+- Extended the test suite to validate new issue aggregation metrics.

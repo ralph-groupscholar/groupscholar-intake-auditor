@@ -1,0 +1,6 @@
+applicant_id,name,email,program,submitted_at,status,stage,score
+A1,Alice,alice@example.com,STEM,2026-02-01T10:00:00Z,Submitted,Round 1,90
+A2,Bob,bob@example.com,STEM,2025-11-01T09:00:00Z,In Review,Round 2,80
+A3,Cara,cara@example.com,Arts,2026-02-05T11:00:00Z,Submitted,Round 1,70
+A4,Dan,dan@example.com,Arts,2025-06-01T12:00:00Z,Submitted,Round 1,
+A5,Erin,erin@example.com,Business,2026-01-15T08:30:00Z,Submitted,Round 1,85
