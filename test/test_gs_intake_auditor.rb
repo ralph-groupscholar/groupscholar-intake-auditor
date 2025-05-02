@@ -46,6 +46,12 @@ class IntakeAuditorTest < Minitest::Test
       assert_equal 1, issue_types.fetch("missing_score")
       assert_equal 1, issue_types.fetch("submitted_at_stale")
       assert_equal 1, report.fetch("issue_rows_with_multiple_issues")
+
+      gap_stats = report.fetch("submission_gap_stats")
+      assert_equal 4.04, gap_stats.fetch("min_days")
+      assert_equal 62.24, gap_stats.fetch("avg_days")
+      assert_equal 152.88, gap_stats.fetch("max_days")
+      assert_equal 3.04, gap_stats.fetch("last_gap_days")
     end
   end
 end

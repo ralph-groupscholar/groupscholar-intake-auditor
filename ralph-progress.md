@@ -54,3 +54,8 @@
 - Added issue type frequency counts plus multi-issue row metrics to the audit report.
 - Surfaced top issue types and multi-flag rows in the console summary and JSON output.
 - Extended the test suite to validate new issue aggregation metrics.
+
+## Iteration 11
+- Added submission gap statistics to highlight intake inactivity stretches in JSON and console output.
+- Extended Postgres logging/schema with submission gap metrics and added a migration helper.
+- Updated tests and seed data to cover the new submission gap reporting.

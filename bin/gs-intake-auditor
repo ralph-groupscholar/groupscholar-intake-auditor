@@ -368,6 +368,20 @@ else
   }
 end
 
+submission_gap_stats = if submission_times.empty?
+  nil
+else
+  sorted_times = submission_times.sort
+  gaps = sorted_times.each_cons(2).map { |start_time, end_time| (end_time - start_time) / (24 * 60 * 60) }
+  last_gap = (now - sorted_times.last) / (24 * 60 * 60)
+  {
+    min_days: gaps.empty? ? nil : gaps.min.round(2),
+    max_days: gaps.empty? ? nil : gaps.max.round(2),
+    avg_days: gaps.empty? ? nil : (gaps.sum / gaps.length.to_f).round(2),
+    last_gap_days: last_gap.round(2)
+  }
+end
+
 complete_required_rows_pct = rows.empty? ? 0.0 : (complete_required_rows * 100.0 / rows.length).round(1)
 issue_rows_with_multiple_issues_pct = rows.empty? ? 0.0 : (issue_rows_with_multiple_issues * 100.0 / rows.length).round(1)
 weekday_order = %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday]
@@ -483,6 +497,7 @@ report = {
   }.to_h,
   submission_window: submission_window,
   submission_age_days_stats: submission_age_stats,
+  submission_gap_stats: submission_gap_stats,
   recent_submissions: recent_submissions,
   recent_submissions_by_program: recent_submissions_by_program.sort_by { |_, v| -v }.to_h,
   recent_submission_window_days: options[:recent_days],
@@ -545,6 +560,7 @@ def log_report_to_db(report, db_url)
       score_stats_by_status,
       submission_window,
       submission_age_days_stats,
+      submission_gap_stats,
       recent_submissions,
       recent_submissions_by_program,
       recent_submission_window_days,
@@ -574,9 +590,9 @@ def log_report_to_db(report, db_url)
     ) VALUES (
       $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
       $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb,
-      $21, $22::jsonb, $23, $24, $25, $26, $27, $28, $29, $30, $31::jsonb, $32, $33, $34, $35, $36,
-      $37::jsonb, $38::jsonb, $39::jsonb, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb,
-      $45::jsonb, $46
+      $21::jsonb, $22, $23::jsonb, $24, $25, $26, $27, $28, $29, $30, $31, $32::jsonb, $33, $34, $35, $36,
+      $37, $38::jsonb, $39::jsonb, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb, $45::jsonb,
+      $46::jsonb, $47
     )
   SQL
   params = [
@@ -600,6 +616,7 @@ def log_report_to_db(report, db_url)
     JSON.dump(report[:score_stats_by_status]),
     JSON.dump(report[:submission_window]),
     JSON.dump(report[:submission_age_days_stats]),
+    JSON.dump(report[:submission_gap_stats]),
     report[:recent_submissions],
     JSON.dump(report[:recent_submissions_by_program]),
     report[:recent_submission_window_days],
@@ -733,6 +750,15 @@ end
 if report[:submission_age_days_stats]
   stats = report[:submission_age_days_stats]
   puts "Submission age (days): min #{stats[:min_days]}, avg #{stats[:avg_days]}, max #{stats[:max_days]}, p50 #{stats[:p50_days]}, p90 #{stats[:p90_days]}, p95 #{stats[:p95_days]}"
+end
+
+if report[:submission_gap_stats]
+  stats = report[:submission_gap_stats]
+  if stats[:min_days]
+    puts "Submission gaps (days): min #{stats[:min_days]}, avg #{stats[:avg_days]}, max #{stats[:max_days]}, since latest #{stats[:last_gap_days]}"
+  else
+    puts "Submission gaps (days): only one submission, since latest #{stats[:last_gap_days]}"
+  end
 end
 
 puts "Recent submissions (#{report[:recent_submission_window_days]}d): #{report[:recent_submissions]}"
