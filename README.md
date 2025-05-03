@@ -15,7 +15,7 @@ Group Scholar Intake Auditor is a Ruby CLI that audits applicant intake CSV file
 - Highlights duplicate emails and recent submission counts.
 - Highlights duplicate applicant IDs.
 - Summarizes top email domains and submission recency buckets.
-- Adds stale submission counts by program plus daily/weekly submission trends.
+- Adds stale submission counts by program plus daily/weekly/monthly submission trends.
 - Reports field completeness and blank status/stage counts.
 - Calculates complete-required-row coverage and submission day/hour trends.
 - Flags unknown status/stage values when allowlists are supplied.
@@ -58,10 +58,10 @@ Override the current time (for backfills or reproducible runs):
 bin/gs-intake-auditor path/to/intake.csv --now 2026-02-08T12:00:00Z
 ```
 
-Control the daily/weekly submission trend windows:
+Control the daily/weekly/monthly submission trend windows:
 
 ```bash
-bin/gs-intake-auditor path/to/intake.csv --trend-days 21 --trend-weeks 16
+bin/gs-intake-auditor path/to/intake.csv --trend-days 21 --trend-weeks 16 --trend-months 9
 ```
 
 Validate status/stage values against an allowlist:

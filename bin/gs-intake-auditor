@@ -15,6 +15,7 @@ options = {
   stale_days: 180,
   trend_days: 14,
   trend_weeks: 12,
+  trend_months: 6,
   status_allowlist: nil,
   stage_allowlist: nil,
   db_log: false,
@@ -51,6 +52,10 @@ parser = OptionParser.new do |opts|
 
   opts.on("--trend-weeks N", Integer, "Weeks to show in submission trend (default: 12)") do |n|
     options[:trend_weeks] = [n, 0].max
+  end
+
+  opts.on("--trend-months N", Integer, "Months to show in submission trend (default: 6)") do |n|
+    options[:trend_months] = [n, 0].max
   end
 
   opts.on("--status-allowlist VALUES", "Comma-separated allowed statuses (flags unknown values)") do |value|
@@ -141,6 +146,10 @@ submission_weekday_counts = Hash.new(0)
 submission_hour_counts = Hash.new(0)
 daily_trend_counts = Hash.new(0)
 weekly_trend_counts = Hash.new(0)
+monthly_trend_counts = Hash.new(0)
+submission_age_by_status_values = Hash.new { |hash, key| hash[key] = [] }
+submission_age_stale_counts = Hash.new(0)
+submission_age_recent_counts = Hash.new(0)
 issue_rows = []
 issue_type_counts = Hash.new(0)
 issue_rows_with_multiple_issues = 0
@@ -169,6 +178,8 @@ recency_bucket_limits = [7, 30, 90, 180]
 trend_days_start = today - ([options[:trend_days], 1].max - 1)
 current_week_start = today - ((today.wday + 6) % 7)
 trend_weeks_start = current_week_start - (7 * ([options[:trend_weeks], 1].max - 1))
+current_month_start = Date.new(today.year, today.month, 1)
+trend_months_start = current_month_start << ([options[:trend_months], 1].max - 1)
 
 rows.each_with_index do |row, index|
   row_number = index + 2
@@ -244,8 +255,17 @@ rows.each_with_index do |row, index|
       if week_start >= trend_weeks_start
         weekly_trend_counts[week_start.iso8601] += 1
       end
+      month_start = Date.new(submission_date.year, submission_date.month, 1)
+      if month_start >= trend_months_start
+        monthly_trend_counts[month_start.iso8601] += 1
+      end
       age_days = (now - parsed_submitted_at) / (24 * 60 * 60)
       submission_age_days << age_days
+      unless status.empty?
+        submission_age_by_status_values[status] << age_days
+        submission_age_recent_counts[status] += 1 if parsed_submitted_at >= recent_cutoff
+        submission_age_stale_counts[status] += 1 if parsed_submitted_at < stale_cutoff
+      end
       bucket_label = recency_bucket_limits.find { |limit| age_days <= limit }
       bucket_key = (bucket_label ? "age_#{bucket_label}d" : "age_over_180d")
       recency_buckets[bucket_key] += 1
@@ -382,6 +402,25 @@ else
   }
 end
 
+submission_age_by_status = submission_age_by_status_values.map do |status, ages|
+  total = ages.sum
+  [
+    status,
+    {
+      count: ages.length,
+      min_days: ages.min.round(2),
+      max_days: ages.max.round(2),
+      avg_days: (total / ages.length.to_f).round(2),
+      p50_days: percentile(ages, 0.50)&.round(2),
+      p90_days: percentile(ages, 0.90)&.round(2),
+      p95_days: percentile(ages, 0.95)&.round(2),
+      stale_count: submission_age_stale_counts[status] || 0,
+      recent_count: submission_age_recent_counts[status] || 0
+    }
+  ]
+end.to_h
+submission_age_by_status = submission_age_by_status.sort_by { |_, stats| -stats[:avg_days] }.to_h
+
 complete_required_rows_pct = rows.empty? ? 0.0 : (complete_required_rows * 100.0 / rows.length).round(1)
 issue_rows_with_multiple_issues_pct = rows.empty? ? 0.0 : (issue_rows_with_multiple_issues * 100.0 / rows.length).round(1)
 weekday_order = %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday]
@@ -406,6 +445,15 @@ else
     week_start = trend_weeks_start + (7 * offset)
     key = week_start.iso8601
     acc[key] = weekly_trend_counts[key] || 0
+  end
+end
+submission_monthly_trend = if options[:trend_months] <= 0
+  {}
+else
+  (0...options[:trend_months]).each_with_object({}) do |offset, acc|
+    month_start = trend_months_start >> offset
+    key = month_start.iso8601
+    acc[key] = monthly_trend_counts[key] || 0
   end
 end
 
@@ -498,6 +546,7 @@ report = {
   submission_window: submission_window,
   submission_age_days_stats: submission_age_stats,
   submission_gap_stats: submission_gap_stats,
+  submission_age_by_status: submission_age_by_status,
   recent_submissions: recent_submissions,
   recent_submissions_by_program: recent_submissions_by_program.sort_by { |_, v| -v }.to_h,
   recent_submission_window_days: options[:recent_days],
@@ -525,7 +574,8 @@ report = {
     buckets.sort_by { |_, v| -v }.to_h
   }.sort_by { |_, buckets| -buckets.values.sum }.to_h,
   submission_daily_trend: submission_daily_trend,
-  submission_weekly_trend: submission_weekly_trend
+  submission_weekly_trend: submission_weekly_trend,
+  submission_monthly_trend: submission_monthly_trend
 }
 
 def log_report_to_db(report, db_url)
@@ -561,6 +611,7 @@ def log_report_to_db(report, db_url)
       submission_window,
       submission_age_days_stats,
       submission_gap_stats,
+      submission_age_by_status,
       recent_submissions,
       recent_submissions_by_program,
       recent_submission_window_days,
@@ -586,13 +637,14 @@ def log_report_to_db(report, db_url)
       submission_recency_by_program,
       submission_daily_trend,
       submission_weekly_trend,
+      submission_monthly_trend,
       issue_count
     ) VALUES (
       $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
       $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb,
-      $21::jsonb, $22, $23::jsonb, $24, $25, $26, $27, $28, $29, $30, $31, $32::jsonb, $33, $34, $35, $36,
-      $37, $38::jsonb, $39::jsonb, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb, $45::jsonb,
-      $46::jsonb, $47
+      $21::jsonb, $22::jsonb, $23, $24::jsonb, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35,
+      $36, $37, $38, $39::jsonb, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb, $45::jsonb,
+      $46::jsonb, $47::jsonb, $48::jsonb, $49
     )
   SQL
   params = [
@@ -617,6 +669,7 @@ def log_report_to_db(report, db_url)
     JSON.dump(report[:submission_window]),
     JSON.dump(report[:submission_age_days_stats]),
     JSON.dump(report[:submission_gap_stats]),
+    JSON.dump(report[:submission_age_by_status]),
     report[:recent_submissions],
     JSON.dump(report[:recent_submissions_by_program]),
     report[:recent_submission_window_days],
@@ -642,6 +695,7 @@ def log_report_to_db(report, db_url)
     JSON.dump(report[:submission_recency_by_program]),
     JSON.dump(report[:submission_daily_trend]),
     JSON.dump(report[:submission_weekly_trend]),
+    JSON.dump(report[:submission_monthly_trend]),
     report[:issue_count]
   ]
   conn.exec_params(sql, params)
@@ -830,6 +884,11 @@ end
 if report[:submission_weekly_trend].any?
   trend_summary = report[:submission_weekly_trend].map { |k, v| "#{k}=#{v}" }.join(", ")
   puts "Submission trend weekly (#{options[:trend_weeks]}w): #{trend_summary}"
+end
+
+if report[:submission_monthly_trend].any?
+  trend_summary = report[:submission_monthly_trend].map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Submission trend monthly (#{options[:trend_months]}m): #{trend_summary}"
 end
 
 puts "Issue rows: #{report[:issue_count]}"

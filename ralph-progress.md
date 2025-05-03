@@ -59,3 +59,8 @@
 - Added submission gap statistics to highlight intake inactivity stretches in JSON and console output.
 - Extended Postgres logging/schema with submission gap metrics and added a migration helper.
 - Updated tests and seed data to cover the new submission gap reporting.
+
+## Iteration 12
+- Added monthly submission trend reporting with configurable window in JSON and console output.
+- Extended Postgres schema/logging plus seed data for monthly trend capture.
+- Updated tests and documentation for the new trend option.

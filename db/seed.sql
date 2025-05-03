@@ -45,6 +45,7 @@ INSERT INTO intake_auditor.audit_runs (
   submission_recency_by_program,
   submission_daily_trend,
   submission_weekly_trend,
+  submission_monthly_trend,
   issue_count
 ) VALUES (
   '11111111-1111-1111-1111-111111111111',
@@ -93,5 +94,6 @@ INSERT INTO intake_auditor.audit_runs (
   '{"STEM":{"age_7d":9,"age_30d":18,"age_90d":12,"age_over_180d":11},"Arts":{"age_7d":8,"age_30d":12,"age_90d":10,"age_over_180d":10},"Business":{"age_7d":5,"age_30d":10,"age_90d":13,"age_over_180d":2}}'::jsonb,
   '{"2026-01-31":5,"2026-02-01":4,"2026-02-02":3,"2026-02-03":2,"2026-02-04":4,"2026-02-05":3,"2026-02-06":1}'::jsonb,
   '{"2025-12-22":12,"2025-12-29":15,"2026-01-05":18,"2026-01-12":20,"2026-01-19":16,"2026-01-26":14,"2026-02-02":5}'::jsonb,
+  '{"2025-09-01":6,"2025-10-01":9,"2025-11-01":15,"2025-12-01":18,"2026-01-01":22,"2026-02-01":10}'::jsonb,
   14
 ) ON CONFLICT (id) DO NOTHING;

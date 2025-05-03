@@ -18,7 +18,8 @@ class IntakeAuditorTest < Minitest::Test
         "--recent-days", "30",
         "--stale-days", "180",
         "--trend-days", "7",
-        "--trend-weeks", "2"
+        "--trend-weeks", "2",
+        "--trend-months", "6"
       ]
 
       _stdout, stderr, status = Open3.capture3(*cmd)
@@ -52,6 +53,14 @@ class IntakeAuditorTest < Minitest::Test
       assert_equal 62.24, gap_stats.fetch("avg_days")
       assert_equal 152.88, gap_stats.fetch("max_days")
       assert_equal 3.04, gap_stats.fetch("last_gap_days")
+
+      monthly_trend = report.fetch("submission_monthly_trend")
+      assert_equal 0, monthly_trend.fetch("2025-09-01")
+      assert_equal 0, monthly_trend.fetch("2025-10-01")
+      assert_equal 1, monthly_trend.fetch("2025-11-01")
+      assert_equal 0, monthly_trend.fetch("2025-12-01")
+      assert_equal 1, monthly_trend.fetch("2026-01-01")
+      assert_equal 2, monthly_trend.fetch("2026-02-01")
     end
   end
 end

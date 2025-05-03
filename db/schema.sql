@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS intake_auditor.audit_runs (
   submission_recency_by_program jsonb NOT NULL,
   submission_daily_trend jsonb NOT NULL,
   submission_weekly_trend jsonb NOT NULL,
+  submission_monthly_trend jsonb NOT NULL,
   issue_count integer NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
