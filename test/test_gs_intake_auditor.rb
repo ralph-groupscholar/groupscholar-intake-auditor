@@ -54,6 +54,16 @@ class IntakeAuditorTest < Minitest::Test
       assert_equal 152.88, gap_stats.fetch("max_days")
       assert_equal 3.04, gap_stats.fetch("last_gap_days")
 
+      status_age = report.fetch("submission_age_by_status")
+      submitted_age = status_age.fetch("Submitted")
+      assert_equal 4, submitted_age.fetch("count")
+      assert_equal 71.57, submitted_age.fetch("avg_days")
+      assert_equal 1, submitted_age.fetch("stale_count")
+      assert_equal 3, submitted_age.fetch("recent_count")
+
+      in_review_age = status_age.fetch("In Review")
+      assert_equal 99.13, in_review_age.fetch("avg_days")
+
       monthly_trend = report.fetch("submission_monthly_trend")
       assert_equal 0, monthly_trend.fetch("2025-09-01")
       assert_equal 0, monthly_trend.fetch("2025-10-01")

@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS intake_auditor.audit_runs (
   submission_window jsonb,
   submission_age_days_stats jsonb,
   submission_gap_stats jsonb,
+  submission_age_by_status jsonb NOT NULL,
   recent_submissions integer NOT NULL,
   recent_submissions_by_program jsonb NOT NULL,
   recent_submission_window_days integer NOT NULL,

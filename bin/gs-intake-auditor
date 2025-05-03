@@ -139,6 +139,9 @@ unknown_stage_values = Hash.new(0)
 score_values = []
 score_values_by_program = Hash.new { |hash, key| hash[key] = [] }
 score_values_by_status = Hash.new { |hash, key| hash[key] = [] }
+score_band_counts = Hash.new(0)
+score_band_counts_by_program = Hash.new { |hash, key| hash[key] = Hash.new(0) }
+score_band_counts_by_status = Hash.new { |hash, key| hash[key] = Hash.new(0) }
 missing_scores_by_program = Hash.new(0)
 missing_scores_by_status = Hash.new(0)
 submission_times = []
@@ -228,7 +231,20 @@ rows.each_with_index do |row, index|
       score_values << score
       score_values_by_program[program] << score unless program.to_s.strip.empty?
       score_values_by_status[status] << score unless status.to_s.strip.empty?
-      unless score.between?(0, 100)
+      if score.between?(0, 100)
+        band = case score
+               when 0..59 then "0-59"
+               when 60..69 then "60-69"
+               when 70..79 then "70-79"
+               when 80..89 then "80-89"
+               when 90..100 then "90-100"
+               end
+        if band
+          score_band_counts[band] += 1
+          score_band_counts_by_program[program][band] += 1 unless program.to_s.strip.empty?
+          score_band_counts_by_status[status][band] += 1 unless status.to_s.strip.empty?
+        end
+      else
         score_out_of_range_count += 1
         issues << "score_out_of_range"
       end
@@ -457,6 +473,28 @@ else
   end
 end
 
+score_band_order = ["0-59", "60-69", "70-79", "80-89", "90-100"]
+score_band_distribution = score_band_order.each_with_object({}) do |band, acc|
+  count = score_band_counts[band]
+  acc[band] = count if count.positive?
+end
+score_band_by_program = score_band_counts_by_program.map do |program, bands|
+  ordered = score_band_order.each_with_object({}) do |band, acc|
+    count = bands[band]
+    acc[band] = count if count.positive?
+  end
+  [program, ordered]
+end.to_h
+score_band_by_program = score_band_by_program.sort_by { |_, bands| -bands.values.sum }.to_h
+score_band_by_status = score_band_counts_by_status.map do |status, bands|
+  ordered = score_band_order.each_with_object({}) do |band, acc|
+    count = bands[band]
+    acc[band] = count if count.positive?
+  end
+  [status, ordered]
+end.to_h
+score_band_by_status = score_band_by_status.sort_by { |_, bands| -bands.values.sum }.to_h
+
 field_completeness = {}
 required_headers_in_file.each do |header|
   missing_count = missing_values[header] || 0
@@ -543,6 +581,9 @@ report = {
       missing_scores: missing_scores_by_status[status] || 0
     }]
   }.to_h,
+  score_band_distribution: score_band_distribution,
+  score_band_by_program: score_band_by_program,
+  score_band_by_status: score_band_by_status,
   submission_window: submission_window,
   submission_age_days_stats: submission_age_stats,
   submission_gap_stats: submission_gap_stats,
@@ -804,6 +845,19 @@ end
 if report[:submission_age_days_stats]
   stats = report[:submission_age_days_stats]
   puts "Submission age (days): min #{stats[:min_days]}, avg #{stats[:avg_days]}, max #{stats[:max_days]}, p50 #{stats[:p50_days]}, p90 #{stats[:p90_days]}, p95 #{stats[:p95_days]}"
+end
+
+if report[:submission_age_by_status].any?
+  top_status_age = report[:submission_age_by_status].first(3).map do |status, stats|
+    "#{status}=#{stats[:avg_days]}d avg (#{stats[:count]})"
+  end
+  puts "Status age (top avg): #{top_status_age.join(", ")}"
+  top_stale = report[:submission_age_by_status].sort_by { |_, stats| -stats[:stale_count] }
+  top_stale = top_stale.first(3).select { |_, stats| stats[:stale_count].positive? }
+  if top_stale.any?
+    stale_summary = top_stale.map { |status, stats| "#{status}=#{stats[:stale_count]}" }.join(", ")
+    puts "Stale submissions by status: #{stale_summary}"
+  end
 end
 
 if report[:submission_gap_stats]

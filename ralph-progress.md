@@ -61,6 +61,11 @@
 - Updated tests and seed data to cover the new submission gap reporting.
 
 ## Iteration 12
+- Added submission age statistics by status with recent/stale counts in JSON and console output.
+- Extended Postgres schema/logging/seed data for status age metrics and updated production data.
+- Expanded the test suite to validate the new status age reporting.
+
+## Iteration 12
 - Added monthly submission trend reporting with configurable window in JSON and console output.
 - Extended Postgres schema/logging plus seed data for monthly trend capture.
 - Updated tests and documentation for the new trend option.
