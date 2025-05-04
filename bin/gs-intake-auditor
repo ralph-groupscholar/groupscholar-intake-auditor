@@ -649,6 +649,9 @@ def log_report_to_db(report, db_url)
       score_stats,
       score_stats_by_program,
       score_stats_by_status,
+      score_band_distribution,
+      score_band_by_program,
+      score_band_by_status,
       submission_window,
       submission_age_days_stats,
       submission_gap_stats,
@@ -682,10 +685,10 @@ def log_report_to_db(report, db_url)
       issue_count
     ) VALUES (
       $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb,
-      $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb,
-      $21::jsonb, $22::jsonb, $23, $24::jsonb, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35,
-      $36, $37, $38, $39::jsonb, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb, $45::jsonb,
-      $46::jsonb, $47::jsonb, $48::jsonb, $49
+      $13::jsonb, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb, $20::jsonb, $21::jsonb,
+      $22::jsonb, $23, $24::jsonb, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34::jsonb, $35, $36, $37,
+      $38, $39, $40::jsonb, $41::jsonb, $42::jsonb, $43::jsonb, $44::jsonb, $45::jsonb, $46::jsonb, $47::jsonb,
+      $48::jsonb, $49::jsonb, $50::jsonb, $51
     )
   SQL
   params = [
@@ -707,6 +710,9 @@ def log_report_to_db(report, db_url)
     JSON.dump(report[:score_stats]),
     JSON.dump(report[:score_stats_by_program]),
     JSON.dump(report[:score_stats_by_status]),
+    JSON.dump(report[:score_band_distribution]),
+    JSON.dump(report[:score_band_by_program]),
+    JSON.dump(report[:score_band_by_status]),
     JSON.dump(report[:submission_window]),
     JSON.dump(report[:submission_age_days_stats]),
     JSON.dump(report[:submission_gap_stats]),
@@ -834,6 +840,11 @@ if report[:score_stats]
   puts "Score stats: min #{stats[:min]}, avg #{stats[:avg]}, max #{stats[:max]}, p50 #{stats[:p50]}, p90 #{stats[:p90]}, p95 #{stats[:p95]}"
 else
   puts "Score stats: none"
+end
+
+if report[:score_band_distribution].any?
+  band_summary = report[:score_band_distribution].map { |k, v| "#{k}=#{v}" }.join(", ")
+  puts "Score bands: #{band_summary}"
 end
 
 if report[:submission_window]
